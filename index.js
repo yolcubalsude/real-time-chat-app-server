@@ -5,6 +5,7 @@ require("dotenv").config();
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
+const Room = require("./models/room");
 
 app.use(cors());
 
@@ -23,17 +24,33 @@ const io = new Server(server, {
   }, 
 });
 
+
+
+
 const Message = require("./models/Message");
 
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
 
-  socket.on("join_room", async (room) => {
-    socket.join(room);
-    const messages = await Message.find({ room });
-    socket.emit("load_messages", messages);
-  });
 
+  socket.on("create_room", async ({ name, password }, cb) => {
+    try {
+      const room = await Room.create({ name, password });
+      cb({ ok: true, room });
+    } catch (err) {
+      cb({ ok: false, error: "Oda oluşturulamadı" });
+    }
+  });
+  
+  
+  socket.on("join_room", async ({ name, password }, cb) => {
+    const room = await Room.findOne({ name });
+    if (!room) return cb({ ok: false, error: "Oda bulunamadı" });
+    if (room.password !== password) return cb({ ok: false, error: "Şifre yanlış" });
+  
+    socket.join(name);
+    cb({ ok: true });
+  });
   socket.on("send_message", async (data) => {
     try {
       const newMessage = new Message(data);
@@ -43,6 +60,8 @@ io.on("connection", (socket) => {
       console.error("Message save error:", err);
     }
   });
+
+  
   
 
   socket.on("disconnect", () => {
