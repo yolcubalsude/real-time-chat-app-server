@@ -7,155 +7,140 @@ const cors = require("cors");
 const Room = require("./models/room");
 const User = require("./models/User");
 
-
-
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 require("dotenv").config();
 
-
-
-
 const authRoutes = require("./routes/auth");
 app.use("/auth", authRoutes);
 
-console.log(process.env.MONGO_URI)
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.error(err));
+console.log(process.env.MONGO_URI);
 
+mongoose
+    .connect(process.env.MONGO_URI)
+    .then(() => console.log("✅ MongoDB connected"))
+    .catch((err) => console.error(err));
 
 const server = http.createServer(app);
 
-
-const io = new Server(server, {   
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }, 
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"],
+    },
 });
 
-app.use(cors({
-  origin: "http://localhost:3000", // React uygulamanın adresi
-  methods: ["GET", "POST"],
-  credentials: true
-}));
+app.use(
+    cors({
+        origin: "http://localhost:3000", // React uygulamanın adresi
+        methods: ["GET", "POST"],
+        credentials: true,
+    })
+);
 
 const Message = require("./models/Message");
 
-
-
-
-
 io.on("connection", (socket) => {
-  console.log(`User Connected: ${socket.id}`);
-  socket.on("create_room", async ({ roomId, password, username }) => {
-    try {
-      const existingRoom = await Room.findOne({ roomId });
-      if (existingRoom) {
-        console.log("ROOM EXISTS");
-        socket.emit("room_exists", { message: "Bu oda zaten mevcut!" });
-        return;
-      }
+    console.log(`User Connected: ${socket.id}`);
+    socket.on("create_room", async ({ roomId, password, username }) => {
+        try {
+            const existingRoom = await Room.findOne({ roomId });
+            if (existingRoom) {
+                console.log("ROOM EXISTS");
+                socket.emit("room_exists", { message: "Bu oda zaten mevcut!" });
+                return;
+            }
 
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(password, salt);
-  
-      const newRoom = new Room({ roomId, password: hashedPassword });
-      console.log("newRoom, ", newRoom)
-      await newRoom.save();
-  
-      socket.join(roomId);
-      socket.emit("room_created", { roomId });
-      console.log(`${username} yeni bir oda oluşturdu: ${roomId}`);
-    } catch (err) {
-      console.error(err);
-      socket.emit("error", { message: "Oda oluşturulamadı." });
-    }
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
 
-  });
+            const newRoom = new Room({ roomId, password: hashedPassword });
+            console.log("newRoom, ", newRoom);
+            await newRoom.save();
 
-  // Kullanıcı yazıyor
-  socket.on("typing", ({ room, username }) => {
-    if (!room) return;
-    socket.to(room).emit("typing", { username });
-  });
+            socket.join(roomId);
+            socket.emit("room_created", { roomId });
+            console.log(`${username} yeni bir oda oluşturdu: ${roomId}`);
+        } catch (err) {
+            console.error(err);
+            socket.emit("error", { message: "Oda oluşturulamadı." });
+        }
+    });
 
-  // Kullanıcı yazmayı bıraktı
-  socket.on("stop_typing", ({ room, username }) => {
-    if (!room) return;
-    socket.to(room).emit("stop_typing", { username });
-  });
+    // Kullanıcı yazıyor
+    socket.on("typing", ({ room, username }) => {
+        if (!room) return;
+        socket.to(room).emit("typing", { username });
+    });
 
-  socket.on("join_room", async ({ username, userPassword, roomId, roomPassword }) => {
-    try {
-      const room = await Room.findOne({ roomId });
-      if (!room) {
-        socket.emit("join_error", { error: "Oda bulunamadı" });
-        return;
-      }
-      const user = await User.findOne({ username }); // User modelin olmalı
-    if (!user) {
-      socket.emit("join_error", { error: "Kullanıcı bulunamadı" });
-      return;
-    }
-    const isUserMatch = await bcrypt.compare(userPassword, user.password);
-    if (!isUserMatch) {
-      socket.emit("join_error", { error: "Kullanıcı şifresi yanlış" });
-      return;
-    }
+    // Kullanıcı yazmayı bıraktı
+    socket.on("stop_typing", ({ room, username }) => {
+        if (!room) return;
+        socket.to(room).emit("stop_typing", { username });
+    });
 
+    socket.on(
+        "join_room",
+        async ({ username, userPassword, roomId, roomPassword }) => {
+            try {
+                const room = await Room.findOne({ roomId });
+                if (!room) {
+                    socket.emit("join_error", { error: "Oda bulunamadı" });
+                    return;
+                }
 
-    const isMatch = await bcrypt.compare(roomPassword, room.password);
-    if (!isMatch) {
-      socket.emit("join_error", { error: "Şifre yanlış" });
-      return;
-    }
-  
-      socket.join(roomId);
-      socket.emit("join_success", { roomId });
-    } catch (err) {
-      console.error(err);
-      socket.emit("join_error", { error: "Sunucu hatası" });
-    }
-  });
-  
-  socket.on("send_message", async (data) => {
-    try {
-      const newMessage = new Message(data);
-      await newMessage.save();
-      socket.to(data.room).emit("receive_message", data);
-    } catch (err) {
-      console.error("Message save error:", err);
-    }
-  });
-  
+                console.log("TEST  oda  ", room.password);
+                console.log("TEST EDYORZ ", roomPassword);
 
+                const isMatch = await bcrypt.compare(
+                    roomPassword,
+                    room.password
+                );
+                if (!isMatch) {
+                    socket.emit("join_error", { error: "Şifre yanlış" });
+                    return;
+                }
 
-  socket.on("disconnect", () => {
-    console.log(`User Disconnected: ${socket.id}`);
-  });
+                socket.join(roomId);
+                socket.emit("join_success", { roomId });
+            } catch (err) {
+                console.error(err);
+                socket.emit("join_error", { error: "Sunucu hatası" });
+            }
+        }
+    );
 
+    socket.on("send_message", async (data) => {
+        try {
+            const newMessage = new Message(data);
+            await newMessage.save();
+            socket.to(data.room).emit("receive_message", data);
+        } catch (err) {
+            console.error("Message save error:", err);
+        }
+    });
+
+    socket.on("disconnect", () => {
+        console.log(`User Disconnected: ${socket.id}`);
+    });
 });
-  
+
 app.get("/", (req, res) => {
-  res.send("ok");
+    res.send("ok");
 });
 
 app.get("/messages/:room", async (req, res) => {
-  try {
-    const room = req.params.room;
-    const messages = await require("./models/Message").find({ room });
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch messages" });
-  }
+    try {
+        const room = req.params.room;
+        const messages = await require("./models/Message").find({ room });
+        res.json(messages);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to fetch messages" });
+    }
 });
-
 
 server.listen(3001, () => {
-  console.log("SERVER RUNNING");
+    console.log("SERVER RUNNING");
 });
-
