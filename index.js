@@ -1,14 +1,25 @@
 const express = require("express");
-const app = express();
+const http = require("http");
+const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
-require("dotenv").config();
-const http = require("http");
 const cors = require("cors");
-const { Server } = require("socket.io");
 const Room = require("./models/room");
-//const authRoutes = require("./routes/auth");
-//app.use("/auth", authRoutes);
+const User = require("./models/User");
+
+
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+require("dotenv").config();
+
+
+
+
+const authRoutes = require("./routes/auth");
+app.use("/auth", authRoutes);
 
 console.log(process.env.MONGO_URI)
 mongoose.connect(process.env.MONGO_URI)
@@ -18,6 +29,7 @@ mongoose.connect(process.env.MONGO_URI)
 
 const server = http.createServer(app);
 
+
 const io = new Server(server, {   
   cors: {
     origin: "*",
@@ -25,8 +37,17 @@ const io = new Server(server, {
   }, 
 });
 
+app.use(cors({
+  origin: "http://localhost:3000", // React uygulamanın adresi
+  methods: ["GET", "POST"],
+  credentials: true
+}));
 
 const Message = require("./models/Message");
+
+
+
+
 
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
@@ -38,7 +59,11 @@ io.on("connection", (socket) => {
         socket.emit("room_exists", { message: "Bu oda zaten mevcut!" });
         return;
       }
-      const newRoom = new Room({ roomId, password });
+
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+  
+      const newRoom = new Room({ roomId, password: hashedPassword });
       console.log("newRoom, ", newRoom)
       await newRoom.save();
   
@@ -51,6 +76,7 @@ io.on("connection", (socket) => {
     }
 
   });
+
   // Kullanıcı yazıyor
   socket.on("typing", ({ room, username }) => {
     if (!room) return;
@@ -63,17 +89,30 @@ io.on("connection", (socket) => {
     socket.to(room).emit("stop_typing", { username });
   });
 
-  socket.on("join_room", async ({ username, password, roomId }) => {
+  socket.on("join_room", async ({ username, userPassword, roomId, roomPassword }) => {
     try {
       const room = await Room.findOne({ roomId });
       if (!room) {
         socket.emit("join_error", { error: "Oda bulunamadı" });
         return;
       }
-      if (room.password !== password) {
-        socket.emit("join_error", { error: "Şifre yanlış" });
-        return;
-      }
+      const user = await User.findOne({ username }); // User modelin olmalı
+    if (!user) {
+      socket.emit("join_error", { error: "Kullanıcı bulunamadı" });
+      return;
+    }
+    const isUserMatch = await bcrypt.compare(userPassword, user.password);
+    if (!isUserMatch) {
+      socket.emit("join_error", { error: "Kullanıcı şifresi yanlış" });
+      return;
+    }
+
+
+    const isMatch = await bcrypt.compare(roomPassword, room.password);
+    if (!isMatch) {
+      socket.emit("join_error", { error: "Şifre yanlış" });
+      return;
+    }
   
       socket.join(roomId);
       socket.emit("join_success", { roomId });
@@ -101,9 +140,6 @@ io.on("connection", (socket) => {
 
 });
   
-  
-
-
 app.get("/", (req, res) => {
   res.send("ok");
 });
