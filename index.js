@@ -32,10 +32,24 @@ const io = new Server(server, {
     },
 });
 
+const allowedOrigins = [
+    "http://localhost:3000",
+    "https://real-time-chat-app-client-two.vercel.app/",
+];
+
 app.use(
     cors({
-        origin: "http://localhost:3000", // React uygulamanın adresi
-        methods: ["GET", "POST"],
+        origin: function (origin, callback) {
+            // Postman veya curl gibi origin olmayan istekleri de izin ver
+            if (!origin) return callback(null, true);
+
+            if (allowedOrigins.indexOf(origin) === -1) {
+                const msg =
+                    "The CORS policy for this site does not allow access from the specified Origin.";
+                return callback(new Error(msg), false);
+            }
+            return callback(null, true);
+        },
         credentials: true,
     })
 );
