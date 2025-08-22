@@ -82,10 +82,6 @@ io.on("connection", (socket) => {
                     socket.emit("join_error", { error: "Oda bulunamadı" });
                     return;
                 }
-
-                console.log("TEST  oda  ", room.password);
-                console.log("TEST EDYORZ ", roomPassword);
-
                 const isMatch = await bcrypt.compare(
                     roomPassword,
                     room.password
@@ -101,6 +97,22 @@ io.on("connection", (socket) => {
                 console.error(err);
                 socket.emit("join_error", { error: "Sunucu hatası" });
             }
+            socket.join(roomId);
+
+            const room = await Room.findOne({ roomId: roomId });
+
+            if (room) {
+                const alreadyExists = room.users.some(
+                    (u) => u.username === username
+                );
+
+                if (!alreadyExists) {
+                    room.users.push({ username });
+                    await room.save();
+                }
+
+                io.to(roomId).emit("room_users", room.users);
+            }
         }
     );
 
@@ -114,8 +126,33 @@ io.on("connection", (socket) => {
         }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
         console.log(`User Disconnected: ${socket.id}`);
+        if (socket.username && socket.roomId) {
+            try {
+                await Room.updateOne(
+                    {
+                        roomId: socket.roomId,
+                        "users.username": socket.username,
+                    },
+                    { $set: { "users.$.leftAt": new Date() } }
+                );
+
+                const updatedRoom = await Room.findOne({
+                    roomId: socket.roomId,
+                });
+                io.to(socket.roomId).emit("room_users", updatedRoom.users);
+
+                console.log(
+                    `${socket.username} odadan çıktı (leftAt kaydedildi).`
+                );
+            } catch (err) {
+                console.error(
+                    "Disconnect sırasında leftAt güncellenemedi:",
+                    err
+                );
+            }
+        }
     });
 });
 
