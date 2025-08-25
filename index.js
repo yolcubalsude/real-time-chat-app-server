@@ -27,8 +27,12 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
     cors: {
-        origin: "https://real-time-chat-app-client-two.vercel.app",
+        origin: [
+            "http://localhost:3000",
+            "https://real-time-chat-app-client-two.vercel.app",
+        ],
         methods: ["GET", "POST"],
+        credentials: true,
     },
 });
 
@@ -76,7 +80,6 @@ io.on("connection", (socket) => {
     socket.on(
         "join_room",
         async ({ username, userPassword, roomId, roomPassword }) => {
-            console.log("room.users =>", room.users);
             try {
                 const room = await Room.findOne({ roomId });
                 if (!room) {
@@ -128,7 +131,6 @@ io.on("connection", (socket) => {
     });
 
     socket.on("disconnect", async () => {
-        console.log("room.users =>", room.users);
         console.log(`User Disconnected: ${socket.id}`);
         if (socket.username && socket.roomId) {
             try {
